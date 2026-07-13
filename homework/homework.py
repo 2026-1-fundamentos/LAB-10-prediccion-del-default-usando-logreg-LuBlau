@@ -120,42 +120,72 @@ def load_data():
     train = pd.read_csv("files/input/train_data.csv.zip")
     test = pd.read_csv("files/input/test_data.csv.zip")
 
-    for df in (train, test):
-        df.rename(
-            columns={"default payment next month": "default"},
-            inplace=True,
-        )
-        df.drop(columns=["ID"], inplace=True)
+    train.rename(
+        columns={"default payment next month": "default"},
+        inplace=True,
+    )
+    test.rename(
+        columns={"default payment next month": "default"},
+        inplace=True,
+    )
 
-    train = train[(train["EDUCATION"] != 0) & (train["MARRIAGE"] != 0)].copy()
-    test = test[(test["EDUCATION"] != 0) & (test["MARRIAGE"] != 0)].copy()
+    train.drop(columns=["ID"], inplace=True)
+    test.drop(columns=["ID"], inplace=True)
 
-    train["EDUCATION"] = train["EDUCATION"].apply(lambda x: 4 if x > 4 else x)
-    test["EDUCATION"] = test["EDUCATION"].apply(lambda x: 4 if x > 4 else x)
+    train = train[
+        (train["EDUCATION"] != 0)
+        & (train["MARRIAGE"] != 0)
+    ].copy()
+
+    test = test[
+        (test["EDUCATION"] != 0)
+        & (test["MARRIAGE"] != 0)
+    ].copy()
+
+    train["EDUCATION"] = train["EDUCATION"].apply(
+        lambda x: 4 if x > 4 else x
+    )
+    test["EDUCATION"] = test["EDUCATION"].apply(
+        lambda x: 4 if x > 4 else x
+    )
 
     return train, test
 
 
-def create_pipeline():
-    categorical_features = ["SEX", "EDUCATION", "MARRIAGE"]
+def create_pipeline(x_train):
+    categorical_features = [
+        "SEX",
+        "EDUCATION",
+        "MARRIAGE",
+    ]
+
+    numerical_features = [
+        column
+        for column in x_train.columns
+        if column not in categorical_features
+    ]
 
     preprocessor = ColumnTransformer(
         transformers=[
             (
-                "cat",
+                "categorical",
                 OneHotEncoder(handle_unknown="ignore"),
                 categorical_features,
             ),
-        ],
-        remainder=MinMaxScaler(),
+            (
+                "numerical",
+                MinMaxScaler(),
+                numerical_features,
+            ),
+        ]
     )
 
     pipeline = Pipeline(
-        steps=[
+        [
             ("preprocessor", preprocessor),
             ("selectkbest", SelectKBest(score_func=f_classif)),
             (
-                "logreg",
+                "logisticregression",
                 LogisticRegression(
                     max_iter=1000,
                     random_state=12345,
@@ -165,9 +195,18 @@ def create_pipeline():
     )
 
     param_grid = {
-        "selectkbest__k": [10, 12, 14, 16, 18, 20],
-        "logreg__C": [0.01, 0.1, 1.0, 10.0],
-        "logreg__solver": ["lbfgs"],
+        "selectkbest__k": list(range(1, 24)),
+        "logisticregression__C": [
+            0.01,
+            0.1,
+            1,
+            10,
+            100,
+        ],
+        "logisticregression__solver": [
+            "lbfgs",
+            "saga",
+        ],
     }
 
     model = GridSearchCV(
@@ -184,7 +223,10 @@ def create_pipeline():
 def save_model(model):
     os.makedirs("files/models", exist_ok=True)
 
-    with gzip.open("files/models/model.pkl.gz", "wb") as file:
+    with gzip.open(
+        "files/models/model.pkl.gz",
+        "wb",
+    ) as file:
         pickle.dump(model, file)
 
 
@@ -192,13 +234,22 @@ def metrics_record(dataset, y_true, y_pred):
     return {
         "type": "metrics",
         "dataset": dataset,
-        "precision": round(precision_score(y_true, y_pred), 3),
+        "precision": round(
+            precision_score(y_true, y_pred),
+            3,
+        ),
         "balanced_accuracy": round(
             balanced_accuracy_score(y_true, y_pred),
             3,
         ),
-        "recall": round(recall_score(y_true, y_pred), 3),
-        "f1_score": round(f1_score(y_true, y_pred), 3),
+        "recall": round(
+            recall_score(y_true, y_pred),
+            3,
+        ),
+        "f1_score": round(
+            f1_score(y_true, y_pred),
+            3,
+        ),
     }
 
 
@@ -222,7 +273,11 @@ def cm_record(dataset, y_true, y_pred):
 def save_metrics(metrics):
     os.makedirs("files/output", exist_ok=True)
 
-    with open("files/output/metrics.json", "w", encoding="utf-8") as file:
+    with open(
+        "files/output/metrics.json",
+        "w",
+        encoding="utf-8",
+    ) as file:
         for metric in metrics:
             file.write(json.dumps(metric) + "\n")
 
@@ -236,7 +291,7 @@ def main():
     x_test = test.drop(columns=["default"])
     y_test = test["default"]
 
-    model = create_pipeline()
+    model = create_pipeline(x_train)
     model.fit(x_train, y_train)
 
     save_model(model)
@@ -245,10 +300,26 @@ def main():
     y_test_pred = model.predict(x_test)
 
     metrics = [
-        metrics_record("train", y_train, y_train_pred),
-        metrics_record("test", y_test, y_test_pred),
-        cm_record("train", y_train, y_train_pred),
-        cm_record("test", y_test, y_test_pred),
+        metrics_record(
+            "train",
+            y_train,
+            y_train_pred,
+        ),
+        metrics_record(
+            "test",
+            y_test,
+            y_test_pred,
+        ),
+        cm_record(
+            "train",
+            y_train,
+            y_train_pred,
+        ),
+        cm_record(
+            "test",
+            y_test,
+            y_test_pred,
+        ),
     ]
 
     save_metrics(metrics)
