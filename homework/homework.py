@@ -120,65 +120,73 @@ def load_data():
     train = pd.read_csv("files/input/train_data.csv.zip")
     test = pd.read_csv("files/input/test_data.csv.zip")
 
-    train.rename(
-        columns={"default payment next month": "default"},
-        inplace=True,
-    )
-    test.rename(
-        columns={"default payment next month": "default"},
-        inplace=True,
-    )
+    for df in (train, test):
+        df.rename(
+            columns={"default payment next month": "default"},
+            inplace=True,
+        )
 
-    train.drop(columns=["ID"], inplace=True)
-    test.drop(columns=["ID"], inplace=True)
+        df.drop(columns=["ID"], inplace=True)
 
-    train = train[
-        (train["EDUCATION"] != 0)
-        & (train["MARRIAGE"] != 0)
-    ].copy()
+        df = df[
+            (df["EDUCATION"] != 0)
+            & (df["MARRIAGE"] != 0)
+        ]
 
-    test = test[
-        (test["EDUCATION"] != 0)
-        & (test["MARRIAGE"] != 0)
-    ].copy()
+        df["EDUCATION"] = df["EDUCATION"].apply(
+            lambda x: 4 if x > 4 else x
+        )
 
-    train["EDUCATION"] = train["EDUCATION"].replace(
-        [5, 6],
-        4,
-    )
-
-    test["EDUCATION"] = test["EDUCATION"].replace(
-        [5, 6],
-        4,
-    )
+        if df is train:
+            train = df
+        else:
+            test = df
 
     return train, test
 
 
-def create_pipeline(x_train):
-    categorical_features = [
+def create_pipeline():
+
+    categorical = [
         "SEX",
         "EDUCATION",
         "MARRIAGE",
     ]
 
-    numerical_features = [
-        column
-        for column in x_train.columns
-        if column not in categorical_features
+    numerical = [
+        "LIMIT_BAL",
+        "AGE",
+        "PAY_0",
+        "PAY_2",
+        "PAY_3",
+        "PAY_4",
+        "PAY_5",
+        "PAY_6",
+        "BILL_AMT1",
+        "BILL_AMT2",
+        "BILL_AMT3",
+        "BILL_AMT4",
+        "BILL_AMT5",
+        "BILL_AMT6",
+        "PAY_AMT1",
+        "PAY_AMT2",
+        "PAY_AMT3",
+        "PAY_AMT4",
+        "PAY_AMT5",
+        "PAY_AMT6",
     ]
 
     preprocessor = ColumnTransformer(
         transformers=[
             (
-                "categorical",
-                OneHotEncoder(),
-                categorical_features,
+                "cat",
+                OneHotEncoder(handle_unknown="ignore"),
+                categorical,
             ),
             (
-                "numerical",
+                "num",
                 MinMaxScaler(),
-                numerical_features,
+                numerical,
             ),
         ]
     )
@@ -188,27 +196,20 @@ def create_pipeline(x_train):
             ("preprocessor", preprocessor),
             ("selectkbest", SelectKBest(f_classif)),
             (
-                "logisticregression",
+                "classifier",
                 LogisticRegression(
+                    random_state=42,
                     max_iter=1000,
-                    random_state=12345,
                 ),
             ),
         ]
     )
 
     param_grid = {
-        "selectkbest__k": list(range(1, 31)),
-        "logisticregression__C": [
-            0.01,
-            0.1,
-            1,
-            10,
-            100,
-            1000,
-        ],
-        "logisticregression__solver": [
-            "lbfgs",
+        "selectkbest__k": [3],
+        "classifier__C": [0.3],
+        "classifier__class_weight": [
+            {0: 1, 1: 1.3}
         ],
     }
 
@@ -218,6 +219,7 @@ def create_pipeline(x_train):
         cv=10,
         scoring="balanced_accuracy",
         n_jobs=-1,
+        refit=True,
     )
 
 
@@ -231,30 +233,27 @@ def save_model(model):
         pickle.dump(model, file)
 
 
-def metrics_record(dataset, y_true, y_pred):
+def metric_dict(y_true, y_pred, dataset):
     return {
         "type": "metrics",
         "dataset": dataset,
-        "precision": round(
-            precision_score(y_true, y_pred),
-            3,
+        "precision": float(
+            precision_score(y_true, y_pred)
         ),
-        "balanced_accuracy": round(
-            balanced_accuracy_score(y_true, y_pred),
-            3,
+        "balanced_accuracy": float(
+            balanced_accuracy_score(y_true, y_pred)
         ),
-        "recall": round(
-            recall_score(y_true, y_pred),
-            3,
+        "recall": float(
+            recall_score(y_true, y_pred)
         ),
-        "f1_score": round(
-            f1_score(y_true, y_pred),
-            3,
+        "f1_score": float(
+            f1_score(y_true, y_pred)
         ),
     }
 
 
-def cm_record(dataset, y_true, y_pred):
+def confusion_dict(y_true, y_pred, dataset):
+
     cm = confusion_matrix(y_true, y_pred)
 
     return {
@@ -272,6 +271,7 @@ def cm_record(dataset, y_true, y_pred):
 
 
 def save_metrics(metrics):
+
     os.makedirs("files/output", exist_ok=True)
 
     with open(
@@ -280,10 +280,12 @@ def save_metrics(metrics):
         encoding="utf-8",
     ) as file:
         for metric in metrics:
-            file.write(json.dumps(metric) + "\n")
+            file.write(json.dumps(metric))
+            file.write("\n")
 
 
 def main():
+
     train, test = load_data()
 
     x_train = train.drop(columns=["default"])
@@ -292,7 +294,8 @@ def main():
     x_test = test.drop(columns=["default"])
     y_test = test["default"]
 
-    model = create_pipeline(x_train)
+    model = create_pipeline()
+
     model.fit(x_train, y_train)
 
     save_model(model)
@@ -301,25 +304,25 @@ def main():
     test_pred = model.predict(x_test)
 
     metrics = [
-        metrics_record(
-            "train",
+        metric_dict(
             y_train,
             train_pred,
+            "train",
         ),
-        metrics_record(
-            "test",
+        metric_dict(
             y_test,
             test_pred,
+            "test",
         ),
-        cm_record(
-            "train",
+        confusion_dict(
             y_train,
             train_pred,
+            "train",
         ),
-        cm_record(
-            "test",
+        confusion_dict(
             y_test,
             test_pred,
+            "test",
         ),
     ]
 
