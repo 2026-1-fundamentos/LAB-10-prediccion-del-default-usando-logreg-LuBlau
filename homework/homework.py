@@ -142,11 +142,14 @@ def load_data():
         & (test["MARRIAGE"] != 0)
     ].copy()
 
-    train["EDUCATION"] = train["EDUCATION"].apply(
-        lambda x: 4 if x > 4 else x
+    train["EDUCATION"] = train["EDUCATION"].replace(
+        [5, 6],
+        4,
     )
-    test["EDUCATION"] = test["EDUCATION"].apply(
-        lambda x: 4 if x > 4 else x
+
+    test["EDUCATION"] = test["EDUCATION"].replace(
+        [5, 6],
+        4,
     )
 
     return train, test
@@ -169,7 +172,7 @@ def create_pipeline(x_train):
         transformers=[
             (
                 "categorical",
-                OneHotEncoder(handle_unknown="ignore"),
+                OneHotEncoder(),
                 categorical_features,
             ),
             (
@@ -183,7 +186,7 @@ def create_pipeline(x_train):
     pipeline = Pipeline(
         [
             ("preprocessor", preprocessor),
-            ("selectkbest", SelectKBest(score_func=f_classif)),
+            ("selectkbest", SelectKBest(f_classif)),
             (
                 "logisticregression",
                 LogisticRegression(
@@ -195,29 +198,27 @@ def create_pipeline(x_train):
     )
 
     param_grid = {
-        "selectkbest__k": list(range(1, 24)),
+        "selectkbest__k": list(range(1, 31)),
         "logisticregression__C": [
             0.01,
             0.1,
             1,
             10,
             100,
+            1000,
         ],
         "logisticregression__solver": [
             "lbfgs",
-            "saga",
         ],
     }
 
-    model = GridSearchCV(
+    return GridSearchCV(
         pipeline,
         param_grid=param_grid,
         cv=10,
         scoring="balanced_accuracy",
         n_jobs=-1,
     )
-
-    return model
 
 
 def save_model(model):
@@ -296,29 +297,29 @@ def main():
 
     save_model(model)
 
-    y_train_pred = model.predict(x_train)
-    y_test_pred = model.predict(x_test)
+    train_pred = model.predict(x_train)
+    test_pred = model.predict(x_test)
 
     metrics = [
         metrics_record(
             "train",
             y_train,
-            y_train_pred,
+            train_pred,
         ),
         metrics_record(
             "test",
             y_test,
-            y_test_pred,
+            test_pred,
         ),
         cm_record(
             "train",
             y_train,
-            y_train_pred,
+            train_pred,
         ),
         cm_record(
             "test",
             y_test,
-            y_test_pred,
+            test_pred,
         ),
     ]
 
